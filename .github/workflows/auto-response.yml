@@ -1,0 +1,41 @@
+
+name: Issue Auto Response
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  auto-response:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Welcome new issue
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const number = context.issue.number;
+
+            const message = [
+              "안녕하세요! Issue를 등록해 주셔서 감사합니다.",
+              "",
+              "등록된 내용을 확인하겠습니다.",
+              "",
+              "원활한 처리를 위해 다음 내용을 확인해 주세요.",
+              "- 문제 발생 상황",
+              "- 재현 방법",
+              "- 예상한 결과",
+              "",
+              "이 댓글은 GitHub Actions가 자동 작성했습니다."
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: number,
+              body: message
+            });
