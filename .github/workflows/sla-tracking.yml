@@ -1,0 +1,93 @@
+
+name: SLA Tracking
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  check-sla:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check issue response time
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const now = Date.now();
+            const limit = 48 * 60 * 60 * 1000;
+            const label = "sla:overdue";
+
+            const issues = await github.paginate(
+              github.rest.issues.listForRepo,
+              { owner, repo, state: "open", per_page: 100 }
+            );
+
+            let labelReady = false;
+
+            for (const issue of issues) {
+              if (issue.pull_request) continue;
+
+              const comments = await github.paginate(
+                github.rest.issues.listComments,
+                {
+                  owner,
+                  repo,
+                  issue_number: issue.number,
+                  per_page: 100
+                }
+              );
+
+              const hasResponse = comments.some(c =>
+                c.user?.type !== "Bot" &&
+                ["OWNER", "MEMBER", "COLLABORATOR"]
+                  .includes(c.author_association)
+              );
+
+              const age = now - new Date(issue.created_at);
+              const overdue = age >= limit && !hasResponse;
+              const labeled = issue.labels.some(
+                l => (typeof l === "string" ? l : l.name) === label
+              );
+
+              if (overdue && !labeled) {
+                if (!labelReady) {
+                  try {
+                    await github.rest.issues.getLabel({
+                      owner, repo, name: label
+                    });
+                  } catch (error) {
+                    if (error.status !== 404) throw error;
+                    await github.rest.issues.createLabel({
+                      owner,
+                      repo,
+                      name: label,
+                      color: "d73a4a",
+                      description: "Response SLA exceeded"
+                    });
+                  }
+                  labelReady = true;
+                }
+
+                await github.rest.issues.addLabels({
+                  owner,
+                  repo,
+                  issue_number: issue.number,
+                  labels: [label]
+                });
+              }
+
+              if (!overdue && labeled) {
+                await github.rest.issues.removeLabel({
+                  owner,
+                  repo,
+                  issue_number: issue.number,
+                  name: label
+                });
+              }
+            }
